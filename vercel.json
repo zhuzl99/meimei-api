@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/api/wishlist", "destination": "/api/wishlist.js" },
+    { "source": "/api/messages", "destination": "/api/messages.js" }
+  ]
+}
