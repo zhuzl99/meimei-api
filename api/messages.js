@@ -9,34 +9,40 @@ export default async function handler(req, res) {
   const token = process.env.KV_REST_API_TOKEN;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-  if (req.method === 'GET') {
+  async function getMsgs() {
     const r = await fetch(`${url}/get/meimei:messages`, { headers, cache: 'no-store' });
     const d = await r.json();
-    const data = d.result ? JSON.parse(d.result) : [];
-    return res.status(200).json(data);
+    if (!d.result) return [];
+    try {
+      const parsed = JSON.parse(d.result);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch(e) { return []; }
+  }
+
+  async function setMsgs(msgs) {
+    await fetch(`${url}/set/meimei:messages`, {
+      method: 'POST', headers,
+      body: JSON.stringify(JSON.stringify(msgs))
+    });
+  }
+
+  if (req.method === 'GET') {
+    const msgs = await getMsgs();
+    return res.status(200).json(msgs);
   }
 
   if (req.method === 'POST') {
-    const r0 = await fetch(`${url}/get/meimei:messages`, { headers, cache: 'no-store' });
-    const d0 = await r0.json();
-    const msgs = d0.result ? JSON.parse(d0.result) : [];
+    const msgs = await getMsgs();
     msgs.unshift({ ...req.body, id: Date.now() });
     if (msgs.length > 100) msgs.pop();
-    await fetch(`${url}/set/meimei:messages`, {
-      method: 'POST', headers, body: JSON.stringify(JSON.stringify(msgs))
-    });
+    await setMsgs(msgs);
     return res.status(200).json({ ok: true });
   }
 
   if (req.method === 'DELETE') {
     const { id } = req.query;
-    const r0 = await fetch(`${url}/get/meimei:messages`, { headers, cache: 'no-store' });
-    const d0 = await r0.json();
-    const msgs = d0.result ? JSON.parse(d0.result) : [];
-    const filtered = msgs.filter(m => m.id !== parseInt(id));
-    await fetch(`${url}/set/meimei:messages`, {
-      method: 'POST', headers, body: JSON.stringify(JSON.stringify(filtered))
-    });
+    const msgs = await getMsgs();
+    await setMsgs(msgs.filter(m => m.id !== parseInt(id)));
     return res.status(200).json({ ok: true });
   }
 
