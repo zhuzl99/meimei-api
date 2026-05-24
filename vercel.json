@@ -1,6 +1,8 @@
 {
   "rewrites": [
     { "source": "/api/wishlist", "destination": "/api/wishlist.js" },
-    { "source": "/api/messages", "destination": "/api/messages.js" }
+    { "source": "/api/messages", "destination": "/api/messages.js" },
+    { "source": "/api/content", "destination": "/api/content.js" },
+    { "source": "/api/poke", "destination": "/api/poke.js" }
   ]
 }

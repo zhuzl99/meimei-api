@@ -1,9 +1,9 @@
 import {
   handleOptions,
   setCommonHeaders,
-  getWishlistState,
-  setWishlistState,
-  normalizeWishlistState,
+  getContentPayload,
+  setContentPayload,
+  normalizeContentPayload,
 } from './_store.js';
 
 export default async function handler(req, res) {
@@ -12,18 +12,17 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const state = await getWishlistState();
-      return res.status(200).json(state);
+      const content = await getContentPayload();
+      return res.status(200).json(content);
     }
 
     if (req.method === 'POST') {
-      const current = await getWishlistState();
-      const next = normalizeWishlistState({
+      const current = await getContentPayload();
+      const next = normalizeContentPayload({
         ...current,
         ...(req.body || {}),
-        updatedAt: Date.now(),
       });
-      const saved = await setWishlistState(next);
+      const saved = await setContentPayload(next);
       return res.status(200).json({ ok: true, data: saved });
     }
 
