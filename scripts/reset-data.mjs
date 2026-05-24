@@ -113,7 +113,7 @@ const contentPayload = {
 };
 
 const wishlistPayload = {
-  done: [],
+  done: [28, 29],
   userWishes: [],
   baseWishOverrides: {},
   capsuleOpened: [],
@@ -122,7 +122,6 @@ const wishlistPayload = {
   shownMilestones: [],
   togetherWishes: [],
   himWishes: [],
-  messages: [],
   muyuCount: 0,
   updatedAt: 0,
 };

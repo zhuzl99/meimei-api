@@ -3,7 +3,7 @@ import {
   setCommonHeaders,
   getWishlistState,
   setWishlistState,
-  normalizeWishlistState,
+  annotateWishlistState,
 } from './_store.js';
 
 export default async function handler(req, res) {
@@ -18,11 +18,11 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const current = await getWishlistState();
-      const next = normalizeWishlistState({
+      const next = annotateWishlistState(current, {
         ...current,
         ...(req.body || {}),
         updatedAt: Date.now(),
-      });
+      }, req);
       const saved = await setWishlistState(next);
       return res.status(200).json({ ok: true, data: saved });
     }

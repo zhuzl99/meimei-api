@@ -71,11 +71,11 @@ export function defaultWishlistState() {
     baseWishOverrides: {},
     capsuleOpened: [],
     sealClicks: 0,
+    secretWishUnlocked: false,
     history: {},
     shownMilestones: [],
     togetherWishes: [],
     himWishes: [],
-    messages: [],
     muyuCount: 0,
     updatedAt: 0,
   };
@@ -124,12 +124,108 @@ export function normalizeWishlistState(data) {
     shownMilestones: Array.isArray(next.shownMilestones) ? next.shownMilestones : base.shownMilestones,
     togetherWishes: Array.isArray(next.togetherWishes) ? next.togetherWishes : base.togetherWishes,
     himWishes: Array.isArray(next.himWishes) ? next.himWishes : base.himWishes,
-    messages: Array.isArray(next.messages) ? next.messages : base.messages,
     history: next.history && typeof next.history === 'object' ? next.history : base.history,
     sealClicks: Number.isFinite(next.sealClicks) ? next.sealClicks : base.sealClicks,
+    secretWishUnlocked: Boolean(next.secretWishUnlocked),
     muyuCount: Number.isFinite(next.muyuCount) ? next.muyuCount : base.muyuCount,
     updatedAt: Number.isFinite(next.updatedAt) ? next.updatedAt : base.updatedAt,
   };
+}
+
+function formatHistoryDate(date) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date).replace(/\//g, '-');
+}
+
+function getRequestIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const realIp = req.headers['x-real-ip'];
+  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded || realIp || req.socket?.remoteAddress || '';
+  const first = String(raw).split(',')[0].trim();
+  if (!first) return '';
+  const normalized = first.replace(/^::ffff:/, '');
+  if (normalized === '::1' || normalized === '127.0.0.1' || normalized === 'localhost') return '';
+  return normalized;
+}
+
+function normalizeHistoryEntry(entry) {
+  if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+    return {
+      date: typeof entry.date === 'string' ? entry.date : '',
+      text: typeof entry.text === 'string' ? entry.text : '',
+      loc: typeof entry.loc === 'string' ? entry.loc : '',
+      ip: typeof entry.ip === 'string' ? entry.ip : '',
+      source: typeof entry.source === 'string' ? entry.source : '',
+    };
+  }
+  return {
+    date: typeof entry === 'string' ? entry : '',
+    text: '',
+    loc: '',
+    ip: '',
+    source: '',
+  };
+}
+
+function mergeHistoryEntry(currentEntry, nextEntry, stamp) {
+  const current = normalizeHistoryEntry(currentEntry);
+  const next = normalizeHistoryEntry(nextEntry);
+  return {
+    ...next,
+    date: current.date || next.date || stamp.date,
+    ip: current.ip || next.ip || stamp.ip,
+    source: current.source || next.source || '',
+  };
+}
+
+function annotateMainHistory(currentState, nextState, stamp) {
+  const nextHistory = nextState.history && typeof nextState.history === 'object' ? nextState.history : {};
+  const currentHistory = currentState.history && typeof currentState.history === 'object' ? currentState.history : {};
+  const annotated = {};
+
+  Object.entries(nextHistory).forEach(([key, value]) => {
+    const nextEntries = Array.isArray(value) ? value : [];
+    const currentEntries = Array.isArray(currentHistory[key]) ? currentHistory[key] : [];
+    annotated[key] = nextEntries.map((entry, index) => mergeHistoryEntry(currentEntries[index], entry, stamp));
+  });
+
+  nextState.history = annotated;
+}
+
+function annotateCheckableList(currentList, nextList, stamp) {
+  return (Array.isArray(nextList) ? nextList : []).map((item, index) => {
+    const safeItem = item && typeof item === 'object' ? item : {};
+    const currentItem = Array.isArray(currentList) ? currentList[index] : null;
+    const currentHistory = Array.isArray(currentItem?.history) ? currentItem.history : [];
+    const nextHistory = Array.isArray(safeItem.history) ? safeItem.history : [];
+
+    return {
+      ...safeItem,
+      text: typeof safeItem.text === 'string' ? safeItem.text : '',
+      done: Boolean(safeItem.done),
+      history: nextHistory.map((entry, entryIndex) => mergeHistoryEntry(currentHistory[entryIndex], entry, stamp)),
+    };
+  });
+}
+
+export function annotateWishlistState(currentState, nextState, req) {
+  const stamp = {
+    date: formatHistoryDate(new Date()),
+    ip: getRequestIp(req),
+  };
+  const annotated = normalizeWishlistState(nextState);
+  annotateMainHistory(normalizeWishlistState(currentState), annotated, stamp);
+  annotated.togetherWishes = annotateCheckableList(currentState.togetherWishes, annotated.togetherWishes, stamp);
+  annotated.himWishes = annotateCheckableList(currentState.himWishes, annotated.himWishes, stamp);
+  return annotated;
 }
 
 export async function getWishlistState() {
