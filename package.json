@@ -1,6 +1,9 @@
 {
   "name": "meimei-api",
   "version": "1.0.0",
+  "scripts": {
+    "reset:data": "node scripts/reset-data.mjs"
+  },
   "dependencies": {
     "@vercel/kv": "^1.0.0"
   }
