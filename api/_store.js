@@ -1,6 +1,10 @@
+import Redis from 'ioredis';
+
 const WISHLIST_KEY = 'meimei:wishlist';
 const MESSAGES_KEY = 'meimei:messages';
 const CONTENT_KEY = 'meimei:content';
+
+let redisClient = null;
 
 function cleanEnvValue(value) {
   if (typeof value !== 'string') return '';
@@ -10,6 +14,25 @@ function cleanEnvValue(value) {
 function parseKvResult(value) {
   if (typeof value !== 'string') return value;
   return JSON.parse(value);
+}
+
+function hasRedisConfig() {
+  return Boolean(cleanEnvValue(process.env.REDIS_URL) || cleanEnvValue(process.env.REDIS_HOST));
+}
+
+function getLegacyKvEnv() {
+  const url = cleanEnvValue(process.env.KV_REST_API_URL);
+  const token = cleanEnvValue(process.env.KV_REST_API_TOKEN);
+  if (!url || !token) {
+    throw new Error('Missing REDIS_URL/REDIS_HOST or KV_REST_API_URL/KV_REST_API_TOKEN');
+  }
+  return {
+    url,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  };
 }
 
 export function setCommonHeaders(res, methods) {
@@ -27,41 +50,106 @@ export function handleOptions(req, res) {
   return false;
 }
 
-export function getKvEnv() {
-  const url = cleanEnvValue(process.env.KV_REST_API_URL);
-  const token = cleanEnvValue(process.env.KV_REST_API_TOKEN);
-  if (!url || !token) {
-    throw new Error('Missing KV_REST_API_URL or KV_REST_API_TOKEN');
+function buildRedisOptions() {
+  const host = cleanEnvValue(process.env.REDIS_HOST);
+  const port = Number.parseInt(cleanEnvValue(process.env.REDIS_PORT), 10) || 6379;
+  const password = cleanEnvValue(process.env.REDIS_PASSWORD);
+  const db = Number.parseInt(cleanEnvValue(process.env.REDIS_DB), 10) || 0;
+  const username = cleanEnvValue(process.env.REDIS_USERNAME);
+  const useTls = /^(1|true|yes)$/i.test(cleanEnvValue(process.env.REDIS_TLS));
+
+  if (host) {
+    const options = {
+      host,
+      port,
+      password: password || undefined,
+      username: username || undefined,
+      db,
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+    };
+
+    if (useTls) {
+      options.tls = {};
+    }
+
+    return { options };
   }
-  return {
-    url,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  };
+
+  const redisUrl = cleanEnvValue(process.env.REDIS_URL);
+  if (redisUrl) {
+    return {
+      url: redisUrl,
+      options: {
+        lazyConnect: true,
+        maxRetriesPerRequest: 1,
+      },
+    };
+  }
+  throw new Error('Missing REDIS_URL or REDIS_HOST');
+}
+
+export function getRedisClient() {
+  if (redisClient) return redisClient;
+  const config = buildRedisOptions();
+  redisClient = config.url
+    ? new Redis(config.url, config.options)
+    : new Redis(config.options);
+  return redisClient;
+}
+
+export async function closeRedisClient() {
+  if (!redisClient) return;
+  await redisClient.quit();
+  redisClient = null;
 }
 
 async function kvGet(key) {
-  const { url, headers } = getKvEnv();
-  const r = await fetch(`${url}/get/${key}`, { headers, cache: 'no-store' });
-  if (!r.ok) {
-    throw new Error(`KV GET failed: ${r.status}`);
+  if (!hasRedisConfig()) {
+    const { url, headers } = getLegacyKvEnv();
+    const response = await fetch(`${url}/get/${key}`, { headers, cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`KV GET failed: ${response.status}`);
+    }
+    return response.json();
   }
-  return r.json();
+  const redis = getRedisClient();
+  const result = await redis.get(key);
+  return { result };
 }
 
 async function kvSet(key, value) {
-  const { url, headers } = getKvEnv();
-  const r = await fetch(`${url}/set/${key}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(value),
-  });
-  if (!r.ok) {
-    throw new Error(`KV SET failed: ${r.status}`);
+  if (!hasRedisConfig()) {
+    const { url, headers } = getLegacyKvEnv();
+    const response = await fetch(`${url}/set/${key}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(value),
+    });
+    if (!response.ok) {
+      throw new Error(`KV SET failed: ${response.status}`);
+    }
+    return response.json();
   }
-  return r.json();
+  const redis = getRedisClient();
+  await redis.set(key, JSON.stringify(value));
+  return { result: 'OK' };
+}
+
+export async function deleteStoreKey(key) {
+  if (!hasRedisConfig()) {
+    const { url, headers } = getLegacyKvEnv();
+    const response = await fetch(`${url}/del/${key}`, {
+      method: 'POST',
+      headers,
+    });
+    if (!response.ok) {
+      throw new Error(`KV DEL failed: ${response.status}`);
+    }
+    return;
+  }
+  const redis = getRedisClient();
+  await redis.del(key);
 }
 
 export function defaultWishlistState() {

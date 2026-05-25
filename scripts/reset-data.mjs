@@ -1,13 +1,17 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  closeRedisClient,
+  deleteStoreKey,
+  setContentPayload,
+  setMessages,
+  setWishlistState,
+} from '../api/_store.js';
+import { loadEnvFiles } from '../env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 
-const CONTENT_KEY = 'meimei:content';
-const WISHLIST_KEY = 'meimei:wishlist';
-const MESSAGES_KEY = 'meimei:messages';
 const TEST_KEY = 'meimei:test-format';
 
 const contentPayload = {
@@ -128,78 +132,18 @@ const wishlistPayload = {
 
 const messagesPayload = [];
 
-function readEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return;
-  const text = fs.readFileSync(filePath, 'utf8');
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const rawValue = trimmed.slice(eq + 1).trim();
-    const value = rawValue.replace(/^"(.*)"$/, '$1');
-    if (!(key in process.env)) {
-      process.env[key] = value;
-    }
-  }
-}
-
 function loadEnv() {
-  readEnvFile(path.join(rootDir, '.env.local'));
-  readEnvFile(path.join(rootDir, '.env'));
-}
-
-function getRequiredEnv(name) {
-  const value = (process.env[name] || '').trim().replace(/^"(.*)"$/, '$1');
-  if (!value) {
-    throw new Error(`Missing ${name}`);
-  }
-  return value;
-}
-
-function getKvConfig() {
-  return {
-    url: getRequiredEnv('KV_REST_API_URL'),
-    headers: {
-      Authorization: `Bearer ${getRequiredEnv('KV_REST_API_TOKEN')}`,
-      'Content-Type': 'application/json',
-    },
-  };
-}
-
-async function kvSet(key, value) {
-  const { url, headers } = getKvConfig();
-  const response = await fetch(`${url}/set/${key}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(value),
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`KV SET failed: ${response.status} ${text}`);
-  }
-}
-
-async function kvDelete(key) {
-  const { url, headers } = getKvConfig();
-  const response = await fetch(`${url}/del/${key}`, {
-    method: 'POST',
-    headers,
-  });
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`KV DEL failed: ${response.status} ${text}`);
-  }
+  loadEnvFiles(rootDir);
 }
 
 async function main() {
   loadEnv();
-  console.log('[reset] rewriting meimei KV data...');
-  await kvSet(CONTENT_KEY, contentPayload);
-  await kvSet(WISHLIST_KEY, wishlistPayload);
-  await kvSet(MESSAGES_KEY, messagesPayload);
-  await kvDelete(TEST_KEY);
+  console.log('[reset] rewriting meimei Redis data...');
+  await setContentPayload(contentPayload);
+  await setWishlistState(wishlistPayload);
+  await setMessages(messagesPayload);
+  await deleteStoreKey(TEST_KEY);
+  await closeRedisClient();
   console.log(
     `[reset] done. content=${contentPayload.originalWishes.length}/${contentPayload.capsules.length}/${contentPayload.quotes.length}, wishlist=empty, messages=0`
   );
@@ -208,4 +152,6 @@ async function main() {
 main().catch((error) => {
   console.error('[reset] failed:', error.message || error);
   process.exitCode = 1;
+}).finally(async () => {
+  await closeRedisClient();
 });
