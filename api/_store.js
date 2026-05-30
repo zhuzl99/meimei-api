@@ -16,25 +16,6 @@ function parseKvResult(value) {
   return JSON.parse(value);
 }
 
-function hasRedisConfig() {
-  return Boolean(cleanEnvValue(process.env.REDIS_URL) || cleanEnvValue(process.env.REDIS_HOST));
-}
-
-function getLegacyKvEnv() {
-  const url = cleanEnvValue(process.env.KV_REST_API_URL);
-  const token = cleanEnvValue(process.env.KV_REST_API_TOKEN);
-  if (!url || !token) {
-    throw new Error('Missing REDIS_URL/REDIS_HOST or KV_REST_API_URL/KV_REST_API_TOKEN');
-  }
-  return {
-    url,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  };
-}
-
 export function setCommonHeaders(res, methods) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -100,54 +81,33 @@ export function getRedisClient() {
 
 export async function closeRedisClient() {
   if (!redisClient) return;
-  await redisClient.quit();
+  const client = redisClient;
   redisClient = null;
+  if (client.status === 'ready') {
+    try {
+      await client.quit();
+      return;
+    } catch {
+      client.disconnect();
+      return;
+    }
+  }
+  client.disconnect();
 }
 
 async function kvGet(key) {
-  if (!hasRedisConfig()) {
-    const { url, headers } = getLegacyKvEnv();
-    const response = await fetch(`${url}/get/${key}`, { headers, cache: 'no-store' });
-    if (!response.ok) {
-      throw new Error(`KV GET failed: ${response.status}`);
-    }
-    return response.json();
-  }
   const redis = getRedisClient();
   const result = await redis.get(key);
   return { result };
 }
 
 async function kvSet(key, value) {
-  if (!hasRedisConfig()) {
-    const { url, headers } = getLegacyKvEnv();
-    const response = await fetch(`${url}/set/${key}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(value),
-    });
-    if (!response.ok) {
-      throw new Error(`KV SET failed: ${response.status}`);
-    }
-    return response.json();
-  }
   const redis = getRedisClient();
   await redis.set(key, JSON.stringify(value));
   return { result: 'OK' };
 }
 
 export async function deleteStoreKey(key) {
-  if (!hasRedisConfig()) {
-    const { url, headers } = getLegacyKvEnv();
-    const response = await fetch(`${url}/del/${key}`, {
-      method: 'POST',
-      headers,
-    });
-    if (!response.ok) {
-      throw new Error(`KV DEL failed: ${response.status}`);
-    }
-    return;
-  }
   const redis = getRedisClient();
   await redis.del(key);
 }

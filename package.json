@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "reset:data": "node scripts/reset-data.mjs"
+    "sync:remote-redis": "node scripts/sync-remote-redis-to-local.mjs"
   },
   "dependencies": {
     "ioredis": "^5.6.1"

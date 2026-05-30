@@ -10,6 +10,7 @@ import pokeHandler from './api/poke.js';
 import wishlistHandler from './api/wishlist.js';
 
 const routes = new Map([
+  ['/api/health', healthHandler],
   ['/api/content', contentHandler],
   ['/api/messages', messagesHandler],
   ['/api/poke', pokeHandler],
@@ -68,6 +69,13 @@ function buildQuery(url) {
   return query;
 }
 
+async function healthHandler(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  return res.status(200).json({ ok: true, service: 'meimei-api' });
+}
+
 function createServer() {
   return http.createServer(async (req, res) => {
     augmentResponse(res);
@@ -76,9 +84,6 @@ function createServer() {
     const handler = routes.get(url.pathname);
 
     if (!handler) {
-      if (url.pathname === '/' || url.pathname === '/health') {
-        return res.status(200).json({ ok: true, service: 'meimei-api' });
-      }
       return res.status(404).json({ error: 'Not found' });
     }
 
